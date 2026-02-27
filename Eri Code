@@ -1,0 +1,123 @@
+import { useState } from 'react';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+const devices = ['Apple Phone', 'Samsung Phone', 'PC'];
+
+export default function HomeScreen() {
+  const [screen, setScreen] = useState<'home' | 'add-device' | 'add-files'>('home');
+  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
+
+  const toggleDevice = (device: string) => {
+    setSelectedDevice(selectedDevice === device ? null : device);
+  };
+
+  if (screen === 'add-device') {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Select a Device</Text>
+        <FlatList
+          data={devices}
+          keyExtractor={(item) => item}
+          renderItem={({ item }) => (
+            <TouchableOpacity style={styles.deviceRow} onPress={() => toggleDevice(item)}>
+              <Text style={styles.deviceText}>{item}</Text>
+              <View style={[styles.circle, selectedDevice === item && styles.circleSelected]} />
+            </TouchableOpacity>
+          )}
+        />
+        <TouchableOpacity style={styles.backButton} onPress={() => setScreen('home')}>
+          <Text style={styles.buttonText}>Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (screen === 'add-files') {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Files</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => setScreen('home')}>
+          <Text style={styles.buttonText}>Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Home screen
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Example System</Text>
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity style={styles.button} onPress={() => setScreen('add-files')}>
+          <Text style={styles.buttonText}>Add files</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.button} onPress={() => setScreen('add-device')}>
+          <Text style={styles.buttonText}>Add device</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#ffde59',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  title: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#0B3D91',
+    marginBottom: 40,
+    textAlign: 'center',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    gap: 20,
+  },
+  button: {
+    backgroundColor: '#ffb070',
+    paddingVertical: 15,
+    paddingHorizontal: 25,
+    borderRadius: 10,
+  },
+  buttonText: {
+    color: 'black',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  deviceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#ffb070',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 15,
+  },
+  deviceText: {
+    fontSize: 18,
+    color: 'black',
+  },
+  circle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'black',
+  },
+  circleSelected: {
+    backgroundColor: '#0B3D91',
+    borderColor: '#0B3D91',
+  },
+  backButton: {
+    marginTop: 20,
+    backgroundColor: '#ffb070',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+});

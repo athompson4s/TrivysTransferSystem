@@ -1,0 +1,345 @@
+import * as DocumentPicker from 'expo-document-picker'
+import { useState } from 'react'
+import {
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native'
+
+type Screen = 'home' | 'connect' | 'files'
+
+export default function Index() {
+
+const [screen, setScreen] = useState<Screen>('home')
+const [files, setFiles] = useState<any[]>([])
+const [code, setCode] = useState('')
+const [device, setDevice] = useState<string | null>(null)
+
+const pickFile = async () => {
+
+const result = await DocumentPicker.getDocumentAsync({
+type: '*/*',
+copyToCacheDirectory: true
+})
+
+if (!result.canceled) {
+setFiles(prev => [...prev, result.assets[0]])
+}
+
+}
+
+const removeFile = (index:number) => {
+
+const updated = [...files]
+updated.splice(index,1)
+setFiles(updated)
+
+}
+
+function Header() {
+
+return(
+
+<View style={styles.header}>
+
+<Text style={styles.logo}>TTS</Text>
+
+<TouchableOpacity
+onPress={()=>setScreen('home')}
+style={styles.closeButton}
+>
+
+<Text style={styles.closeText}>X</Text>
+
+</TouchableOpacity>
+
+</View>
+
+)
+
+}
+
+if(screen === 'home'){
+
+return(
+
+<View style={styles.container}>
+
+<Text style={styles.logoLarge}>TTS</Text>
+
+<Text style={styles.title}>
+Trivy's Transfer System
+</Text>
+
+<TouchableOpacity
+style={styles.mainButton}
+onPress={()=>setScreen('connect')}
+>
+
+<Text style={styles.buttonText}>
+Send File
+</Text>
+
+</TouchableOpacity>
+
+<TouchableOpacity
+style={styles.mainButton}
+>
+
+<Text style={styles.buttonText}>
+Receive File
+</Text>
+
+</TouchableOpacity>
+
+<Text style={styles.footerText}>
+No sign up required!
+</Text>
+
+</View>
+
+)
+
+}
+
+if(screen === 'connect'){
+
+return(
+
+<View style={styles.container}>
+
+<Header/>
+
+<Text style={styles.title}>
+Send File: Connect Device
+</Text>
+
+<TouchableOpacity style={styles.mainButton}>
+
+<Text style={styles.buttonText}>
+Scan QR
+</Text>
+
+</TouchableOpacity>
+
+<Text style={styles.orText}>OR</Text>
+
+<TextInput
+placeholder="Input Code"
+value={code}
+onChangeText={setCode}
+style={styles.input}
+/>
+
+<TouchableOpacity
+style={styles.smallButton}
+onPress={()=>{
+
+setDevice("JohnDoeLaptop")
+setScreen('files')
+
+}}
+>
+
+<Text style={styles.buttonText}>
+Find Device
+</Text>
+
+</TouchableOpacity>
+
+</View>
+
+)
+
+}
+
+if(screen === 'files'){
+
+return(
+
+<View style={styles.container}>
+
+<Header/>
+
+<Text style={styles.title}>
+Send File: Add Files
+</Text>
+
+<FlatList
+data={files}
+keyExtractor={(item,index)=>index.toString()}
+renderItem={({item,index})=>(
+<View style={styles.fileRow}>
+
+<Text style={styles.fileName}>
+{item.name}
+</Text>
+
+<TouchableOpacity
+onPress={()=>removeFile(index)}
+>
+
+<Text style={styles.removeButton}>
+X
+</Text>
+
+</TouchableOpacity>
+
+</View>
+)}
+/>
+
+<TouchableOpacity
+style={styles.smallButton}
+onPress={pickFile}
+>
+
+<Text style={styles.buttonText}>
+Add File
+</Text>
+
+</TouchableOpacity>
+
+{device && (
+
+<Text style={styles.deviceLabel}>
+Device: {device}
+</Text>
+
+)}
+
+<TouchableOpacity
+style={styles.mainButton}
+>
+
+<Text style={styles.buttonText}>
+Transfer Files
+</Text>
+
+</TouchableOpacity>
+
+</View>
+
+)
+
+}
+
+return null
+
+}
+
+const styles = StyleSheet.create({
+
+container:{
+flex:1,
+backgroundColor:'#8fa3c6',
+alignItems:'center',
+justifyContent:'center',
+padding:20
+},
+
+header:{
+position:'absolute',
+top:60,
+width:'100%',
+flexDirection:'row',
+justifyContent:'center'
+},
+
+logo:{
+fontSize:24,
+fontWeight:'bold'
+},
+
+logoLarge:{
+fontSize:42,
+fontWeight:'bold',
+marginBottom:10
+},
+
+closeButton:{
+position:'absolute',
+right:30
+},
+
+closeText:{
+fontSize:22,
+fontWeight:'bold'
+},
+
+title:{
+fontSize:22,
+marginBottom:30,
+textAlign:'center'
+},
+
+mainButton:{
+backgroundColor:'#e9e1d6',
+padding:16,
+borderRadius:30,
+width:220,
+alignItems:'center',
+marginVertical:10
+},
+
+smallButton:{
+backgroundColor:'#e9e1d6',
+padding:12,
+borderRadius:20,
+marginTop:15
+},
+
+buttonText:{
+fontSize:16,
+fontWeight:'600'
+},
+
+input:{
+backgroundColor:'white',
+width:220,
+padding:10,
+borderRadius:5,
+marginTop:10
+},
+
+orText:{
+marginVertical:10
+},
+
+footerText:{
+marginTop:40,
+fontSize:12
+},
+
+fileRow:{
+flexDirection:'row',
+justifyContent:'space-between',
+backgroundColor:'#dfe6f2',
+width:260,
+padding:10,
+marginBottom:10,
+borderRadius:8
+},
+
+fileName:{
+fontSize:16
+},
+
+removeButton:{
+fontWeight:'bold',
+fontSize:16
+},
+
+deviceLabel:{
+marginTop:15,
+fontSize:14
+}
+
+})
+//have an idea of extracting files from the device (from Eri example is tablet android)
+//havent explore with IOS yet, nor web yet maybe
+//using the example from Trivy trivia game, create buttons that navigate back and forth but
+//use UI and UX for people (with non-tech exper)

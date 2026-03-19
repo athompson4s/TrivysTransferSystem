@@ -1,5 +1,5 @@
 import * as DocumentPicker from 'expo-document-picker'
-import { useState } from 'react'
+import React, { useState } from 'react'
 import {
   FlatList,
   StyleSheet,
@@ -10,13 +10,15 @@ import {
 } from 'react-native'
 
 type Screen = 'home' | 'connect' | 'files'
+type DeviceType = 'Apple Phone' | 'Samsung Phone' | 'PC' | null
 
 export default function Index() {
-
   const [screen, setScreen] = useState<Screen>('home')
   const [files, setFiles] = useState<any[]>([])
   const [code, setCode] = useState('')
   const [device, setDevice] = useState<string | null>(null)
+  const [deviceType, setDeviceType] = useState<DeviceType>(null)
+  const [showDeviceOptions, setShowDeviceOptions] = useState(false) // NEW: show device buttons on main screen
 
   const pickFile = async () => {
     const result = await DocumentPicker.getDocumentAsync({
@@ -24,156 +26,165 @@ export default function Index() {
       copyToCacheDirectory: true
     })
 
-    if (!result.canceled) {
-      setFiles(prev => [...prev, result.assets[0]])
+    // handle different expo versions return shapes
+    if ((result as any).canceled === false && Array.isArray((result as any).assets) && (result as any).assets.length > 0) {
+      setFiles(prev => [...prev, (result as any).assets[0]])
+      return
+    }
+    if ((result as any).type === 'success') {
+      setFiles(prev => [...prev, result])
+      return
+    }
+    if ((result as any).name || (result as any).uri) {
+      setFiles(prev => [...prev, result])
     }
   }
 
-  const removeFile = (index:number) => {
+  const removeFile = (index: number) => {
     const updated = [...files]
-    updated.splice(index,1)
+    updated.splice(index, 1)
     setFiles(updated)
   }
 
   function Header() {
-    return(
+    return (
       <View style={styles.header}>
         <Text style={styles.logo}>TTS</Text>
 
-        <TouchableOpacity
-          onPress={()=>setScreen('home')}
-          style={styles.closeButton}
-        >
+        <TouchableOpacity onPress={() => { setScreen('home'); setShowDeviceOptions(false) }} style={styles.closeButton}>
           <Text style={styles.closeText}>X</Text>
         </TouchableOpacity>
       </View>
     )
   }
 
-  if(screen === 'home'){
-    return(
+  if (screen === 'home') {
+    return (
       <View style={styles.container}>
         <Text style={styles.logoLarge}>TTS</Text>
 
-        <Text style={styles.title}>
-          Trivy's Transfer System
-        </Text>
+        <Text style={styles.title}>Trivy's Transfer System</Text>
 
+        {/* Send File button now toggles device options instead of immediately navigating */}
         <TouchableOpacity
           style={styles.mainButton}
-          onPress={()=>setScreen('connect')}
+          onPress={() => {
+            // show device options on the main screen
+            setShowDeviceOptions(true)
+          }}
         >
-          <Text style={styles.buttonText}>
-            Send File
-          </Text>
+          <Text style={styles.buttonText}>Send File</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.mainButton}
-        >
-          <Text style={styles.buttonText}>
-            Receive File
-          </Text>
+        {/* Device option buttons appear after clicking Send File */}
+        {showDeviceOptions && (
+          <View style={styles.deviceSelectorRowHome}>
+            <TouchableOpacity
+              style={[styles.deviceButtonHome, deviceType === 'Apple Phone' && styles.deviceButtonSelectedHome]}
+              onPress={() => {
+                setDeviceType('Apple Phone')
+                setShowDeviceOptions(false)
+                setScreen('connect')
+              }}
+            >
+              <Text style={[styles.deviceButtonTextHome, deviceType === 'Apple Phone' && styles.deviceButtonTextSelectedHome]}>Apple Phone</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.deviceButtonHome, deviceType === 'Samsung Phone' && styles.deviceButtonSelectedHome]}
+              onPress={() => {
+                setDeviceType('Samsung Phone')
+                setShowDeviceOptions(false)
+                setScreen('connect')
+              }}
+            >
+              <Text style={[styles.deviceButtonTextHome, deviceType === 'Samsung Phone' && styles.deviceButtonTextSelectedHome]}>Samsung Phone</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.deviceButtonHome, deviceType === 'PC' && styles.deviceButtonSelectedHome]}
+              onPress={() => {
+                setDeviceType('PC')
+                setShowDeviceOptions(false)
+                setScreen('connect')
+              }}
+            >
+              <Text style={[styles.deviceButtonTextHome, deviceType === 'PC' && styles.deviceButtonTextSelectedHome]}>PC</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.mainButton}>
+          <Text style={styles.buttonText}>Receive File</Text>
         </TouchableOpacity>
 
-        <Text style={styles.footerText}>
-          No sign up required!
-        </Text>
+        <Text style={styles.footerText}>No sign up required!</Text>
       </View>
     )
   }
 
-  if(screen === 'connect'){
-    return(
+  if (screen === 'connect') {
+    return (
       <View style={styles.container}>
-        <Header/>
+        <Header />
 
-        <Text style={styles.title}>
-          Send File: Connect Device
-        </Text>
+        <Text style={styles.title}>Send File: Connect Device</Text>
 
         <TouchableOpacity style={styles.mainButton}>
-          <Text style={styles.buttonText}>
-            Scan QR
-          </Text>
+          <Text style={styles.buttonText}>Scan QR</Text>
         </TouchableOpacity>
 
         <Text style={styles.orText}>OR</Text>
 
-        <TextInput
-          placeholder="Input Code"
-          value={code}
-          onChangeText={setCode}
-          style={styles.input}
-        />
+        <TextInput placeholder="Input Code" value={code} onChangeText={setCode} style={styles.input} />
 
         <TouchableOpacity
           style={styles.smallButton}
-          onPress={()=>{
-            setDevice("JohnDoeLaptop")
+          onPress={() => {
+            setDevice('JohnDoeLaptop')
             setScreen('files')
           }}
         >
-          <Text style={styles.buttonText}>
-            Find Device
-          </Text>
+          <Text style={styles.buttonText}>Find Device</Text>
         </TouchableOpacity>
       </View>
     )
   }
 
-  if(screen === 'files'){
-    return(
+  if (screen === 'files') {
+    return (
       <View style={styles.container}>
-        <Header/>
+        <Header />
 
-        <Text style={styles.title}>
-          Send File: Add Files
-        </Text>
+        <Text style={styles.title}>Send File: Add Files</Text>
 
         <FlatList
           data={files}
-          keyExtractor={(item,index)=>index.toString()}
+          keyExtractor={(item, index) => index.toString()}
           style={styles.fileList}
           contentContainerStyle={styles.fileListContent}
-          renderItem={({item,index})=>(
+          renderItem={({ item, index }) => (
             <View style={styles.fileRow}>
               <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="tail">
-                {item.name}
+                {item.name ?? item.uri ?? 'Unnamed file'}
               </Text>
 
-              <TouchableOpacity
-                onPress={()=>removeFile(index)}
-              >
-                <Text style={styles.removeButton}>
-                  X
-                </Text>
+              <TouchableOpacity onPress={() => removeFile(index)}>
+                <Text style={styles.removeButton}>X</Text>
               </TouchableOpacity>
             </View>
           )}
+          ListEmptyComponent={<Text style={styles.emptyText}>No files added yet</Text>}
         />
 
-        <TouchableOpacity
-          style={styles.smallButton}
-          onPress={pickFile}
-        >
-          <Text style={styles.buttonText}>
-            Add File
-          </Text>
+        <TouchableOpacity style={[styles.smallButton, !deviceType && styles.smallButtonDisabled]} onPress={pickFile} disabled={!deviceType}>
+          <Text style={styles.buttonText}>Add File</Text>
         </TouchableOpacity>
 
-        {device && (
-          <Text style={styles.deviceLabel}>
-            Device: {device}
-          </Text>
-        )}
+        {device && <Text style={styles.deviceLabel}>Device: {device}</Text>}
 
-        <TouchableOpacity
-          style={styles.mainButton}
-        >
-          <Text style={styles.buttonText}>
-            Transfer Files
-          </Text>
+        <TouchableOpacity style={styles.mainButton}>
+          <Text style={styles.buttonText}>Transfer Files</Text>
         </TouchableOpacity>
       </View>
     )
@@ -183,135 +194,178 @@ export default function Index() {
 }
 
 const styles = StyleSheet.create({
-  container:{
-    flex:1,
-    backgroundColor:'#8fa3c6',
-    alignItems:'center',
-    justifyContent:'flex-start', // start from top so content doesn't center under header
-    padding:20,
-    paddingTop:180 // reserve extra space so TTS header sits well above file list
+  container: {
+    flex: 1,
+    backgroundColor: '#8fa3c6',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    padding: 20,
+    paddingTop: 180
   },
 
-  header:{
-    position:'absolute',
-    top:18,               // move header a bit higher (little upside)
-    left:0,
-    right:0,
-    height:80,
-    flexDirection:'row',
-    alignItems:'center',
-    justifyContent:'center',
-    zIndex: 50,          // ensures header stacks above other content on iOS
-    elevation: 50,       // ensures header stacks above other content on Android
+  header: {
+    position: 'absolute',
+    top: 18,
+    left: 0,
+    right: 0,
+    height: 80,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 50,
+    elevation: 50,
     backgroundColor: 'transparent'
   },
 
-  logo:{
-    fontSize:26,         // slightly larger so it reads clearly
-    fontWeight:'bold',
-    marginTop:-6         // nudge the text upward a touch so it doesn't touch file names
+  logo: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    marginTop: -6
   },
 
-  logoLarge:{
-    fontSize:42,
-    fontWeight:'bold',
-    marginBottom:10
+  logoLarge: {
+    fontSize: 42,
+    fontWeight: 'bold',
+    marginBottom: 10
   },
 
-  closeButton:{
-    position:'absolute',
-    right:30
+  closeButton: {
+    position: 'absolute',
+    right: 30
   },
 
-  closeText:{
-    fontSize:22,
-    fontWeight:'bold'
+  closeText: {
+    fontSize: 22,
+    fontWeight: 'bold'
   },
 
-  title:{
-    fontSize:22,
-    marginBottom:20,
-    textAlign:'center'
+  title: {
+    fontSize: 22,
+    marginBottom: 12,
+    textAlign: 'center'
   },
 
-  mainButton:{
-    backgroundColor:'#e9e1d6',
-    padding:16,
-    borderRadius:30,
-    width:220,
-    alignItems:'center',
-    marginVertical:10
+  mainButton: {
+    backgroundColor: '#e9e1d6',
+    padding: 16,
+    borderRadius: 30,
+    width: 220,
+    alignItems: 'center',
+    marginVertical: 10
   },
 
-  smallButton:{
-    backgroundColor:'#e9e1d6',
-    padding:12,
-    borderRadius:20,
-    marginTop:15,
-    width:220,
-    alignItems:'center'
+  smallButton: {
+    backgroundColor: '#e9e1d6',
+    padding: 12,
+    borderRadius: 20,
+    marginTop: 15,
+    width: 220,
+    alignItems: 'center'
   },
 
-  buttonText:{
-    fontSize:16,
-    fontWeight:'600'
+  smallButtonDisabled: {
+    backgroundColor: '#cfc7b9'
   },
 
-  input:{
-    backgroundColor:'white',
-    width:220,
-    padding:10,
-    borderRadius:5,
-    marginTop:10
+  buttonText: {
+    fontSize: 16,
+    fontWeight: '600'
   },
 
-  orText:{
-    marginVertical:10
+  input: {
+    backgroundColor: 'white',
+    width: 220,
+    padding: 10,
+    borderRadius: 5,
+    marginTop: 10
   },
 
-  footerText:{
-    marginTop:40,
-    fontSize:12
+  orText: {
+    marginVertical: 10
   },
 
-  // FlatList styling: fixed width to match file rows, and maxHeight so it scrolls when many items
-  fileList:{
-    width:260,
-    maxHeight:320,
-    marginBottom:10
+  footerText: {
+    marginTop: 40,
+    fontSize: 12
   },
 
-  fileListContent:{
-    paddingBottom:10
+  // Device selector on home screen
+  deviceSelectorRowHome: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: 320,
+    marginTop: 8,
+    marginBottom: 8
   },
 
-  fileRow:{
-    flexDirection:'row',
-    alignItems:'center',
-    justifyContent:'space-between',
-    backgroundColor:'#dfe6f2',
-    width:'100%',
-    padding:10,
-    marginBottom:10,
-    borderRadius:8
+  deviceButtonHome: {
+    flex: 1,
+    backgroundColor: '#f0eae0',
+    paddingVertical: 10,
+    marginHorizontal: 6,
+    borderRadius: 8,
+    alignItems: 'center'
   },
 
-  fileName:{
-    fontSize:16,
-    flexShrink:1,
-    marginRight:8
+  deviceButtonSelectedHome: {
+    backgroundColor: '#3b6aa0'
   },
 
-  removeButton:{
-    fontWeight:'bold',
-    fontSize:16,
-    marginLeft:8
+  deviceButtonTextHome: {
+    fontSize: 13,
+    color: '#333'
   },
 
-  deviceLabel:{
-    marginTop:15,
-    fontSize:14
+  deviceButtonTextSelectedHome: {
+    color: '#fff',
+    fontWeight: '700'
+  },
+
+  // FlatList styling
+  fileList: {
+    width: 320,
+    maxHeight: 320,
+    marginBottom: 10
+  },
+
+  fileListContent: {
+    paddingBottom: 10
+  },
+
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#dfe6f2',
+    width: '100%',
+    padding: 10,
+    marginBottom: 10,
+    borderRadius: 8
+  },
+
+  fileName: {
+    fontSize: 16,
+    flexShrink: 1,
+    marginRight: 8
+  },
+
+  removeButton: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginLeft: 8
+  },
+
+  deviceLabel: {
+    marginTop: 15,
+    fontSize: 14
+  },
+
+  emptyText: {
+    textAlign: 'center',
+    color: '#2b2b2b',
+    paddingVertical: 12
   }
 })
 
-
+
+

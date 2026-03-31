@@ -1,0 +1,459 @@
+/*date made 3-30-26, cause I forgot when I added in encrypt but errosr
+date made 3-27-26 i add qr need encrypt though
+need to add qr session, so the way to do this before adding any more coding is
+by using the terminal first,
+then type in: npx expo install expo-barcode-scanner
+
+*/
+import { BarCodeScanner } from 'expo-barcode-scanner'; //this is for the barcode scanner,dont forget this
+import * as DocumentPicker from 'expo-document-picker';
+import React, { useState } from 'react';
+import {
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
+//when it comes to security for users and us, we usually have a permission to use the user's camera
+//like insta, tiktok, groupme, etc
+import { useEffect } from 'react';
+useEffect(() => {
+  BarCodeScanner.requestPermissionsAsync()
+})
+
+type Screen = 'home' | 'connect' | 'files'
+type DeviceType = 'Apple Phone' | 'Samsung Phone' | 'PC' | null
+
+export default function Index() {
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [screen, setScreen] = useState<Screen>('home')
+  const [files, setFiles] = useState<any[]>([])
+  const [code, setCode] = useState('')
+  const [device, setDevice] = useState<string | null>(null)
+  const [deviceType, setDeviceType] = useState<DeviceType>(null)
+  const [showDeviceOptions, setShowDeviceOptions] = useState(false) // NEW: show device buttons on main screen
+  const [scanning, setScanning] = useState(false)//this is the state of the scanning
+  const [transferStatus, setTransferStatus] = useState('')//this is for the mock file transfer,to see how it will work
+  
+
+  //this is a simple encryption because this is a prototype so it isnt
+  //a huge encryption security wise but it works, hopefully
+  const encrypt = (text: string) => {
+    return btoa(text)
+  }
+  const decrypt = (text: string) => {
+    return atob(text)
+  }
+  const pickFile = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: '*/*',
+      copyToCacheDirectory: true
+    })
+    //this is fot the sending transfer
+  const payload = encrypt(JSON.stringify(files))
+  
+    // handle different expo versions return shapes
+    if ((result as any).canceled === false && Array.isArray((result as any).assets) && (result as any).assets.length > 0) {
+      setFiles(prev => [...prev, (result as any).assets[0]])
+      return
+    }
+    if ((result as any).type === 'success') {
+      setFiles(prev => [...prev, result])
+      return
+    }
+    if ((result as any).name || (result as any).uri) {
+      setFiles(prev => [...prev, result])
+    }
+  }
+
+  const removeFile = (index: number) => {
+    const updated = [...files]
+    updated.splice(index, 1)
+    setFiles(updated)
+  }
+
+  function Header() {
+    return (
+      <View style={styles.header}>
+        <Text style={styles.logo}>TTS</Text>
+
+        <TouchableOpacity onPress={() => { setScreen('home'); setShowDeviceOptions(false) }} style={styles.closeButton}>
+          <Text style={styles.closeText}>X</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
+  if (screen === 'home') {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.logoLarge}>TTS</Text>
+
+        <Text style={styles.title}>Trivy's Transfer System</Text>
+
+        {/* Send File button now toggles device options instead of immediately navigating */}
+        <TouchableOpacity
+          style={styles.mainButton}
+          onPress={() => {
+            // show device options on the main screen
+            setShowDeviceOptions(true)
+          }}
+        >
+          <Text style={styles.buttonText}>Send File</Text>
+        </TouchableOpacity>
+
+        {/* Device option buttons appear after clicking Send File */}
+        {showDeviceOptions && (
+          <View style={styles.deviceSelectorRowHome}>
+            <TouchableOpacity
+              style={[styles.deviceButtonHome, deviceType === 'Apple Phone' && styles.deviceButtonSelectedHome]}
+              onPress={() => {
+                setDeviceType('Apple Phone')//lets change it up a little, nvm later
+                setShowDeviceOptions(false)
+                //la di de da modify the device button for the generational runnniing
+                //connect session when enters, like optimus prime
+                const id = Math.random().toString(36).substring(2, 8)
+                setSessionId(id)
+                setScreen('connect')
+              }}
+            >
+              <Text style={[styles.deviceButtonTextHome, deviceType === 'Apple Phone' && styles.deviceButtonTextSelectedHome]}>Apple Phone</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.deviceButtonHome, deviceType === 'Samsung Phone' && styles.deviceButtonSelectedHome]}
+              onPress={() => {
+                setDeviceType('Samsung Phone')//and tablet, but 2 out of 3
+                setShowDeviceOptions(false)
+                //and another one
+                const id = Math.random().toString(36).substring(2, 8)
+                setSessionId(id)
+                setScreen('connect')
+              }}
+            >
+              <Text style={[styles.deviceButtonTextHome, deviceType === 'Samsung Phone' && styles.deviceButtonTextSelectedHome]}>Samsung Phone</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.deviceButtonHome, deviceType === 'PC' && styles.deviceButtonSelectedHome]}
+              onPress={() => {
+                setDeviceType('PC')//one of ours then, unless got a chromebook
+                setShowDeviceOptions(false)
+                //bunch of false promise but its all good
+                const id = Math.random().toString(36).substring(2, 8)
+                setSessionId(id)
+                setScreen('connect')
+              }}
+            >
+              <Text style={[styles.deviceButtonTextHome, deviceType === 'PC' && styles.deviceButtonTextSelectedHome]}>PC</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.mainButton}>
+          <Text style={styles.buttonText}>Receive File</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.footerText}>No sign up required!</Text>
+      </View>
+    )
+  }
+
+  if (screen === 'connect') {
+    return (
+      <View style={styles.container}>
+        <Header />
+
+        <Text style={styles.title}>Send File: Connect Device</Text>
+
+        <TouchableOpacity
+        //this adds in more details, than just a text "Scan qr"
+        //set Scanning true
+          style={styles.mainButton}
+          onPress={() => setScanning(true)}>
+          <Text style={styles.buttonText}>Scan QR</Text>
+        </TouchableOpacity>
+        
+      {scanning && (//this is adding in the scanner view to connect device and files
+      //along with device, hence session ID
+        <BarCodeScanner
+          onBarCodeScanned={({ data }) => {
+            setSessionId(data)
+            setScanning(false)
+            setDevice('Connected Device')
+            setScreen('files')
+          }}
+          style={{ width: 250, height: 250, marginTop: 20 }}/>
+        )}
+      {sessionId && (
+        <>
+        <Text>Session Code: {sessionId}</Text>
+        <QRCode value={sessionId} size={180} />
+        </>
+      )}
+
+        <Text style={styles.orText}>OR</Text>
+
+        <TextInput placeholder="Input Code" value={code} onChangeText={setCode} style={styles.input} />
+
+        <TouchableOpacity 
+        //earlier,we had a device with a fake name, but in terms of reality, need real name
+        //in terms of security wise, this is a bit unsecure cause can see user's name/device name
+        //but this time, this find device will acutally look at the session Id, which determines
+        //finding device
+          style={styles.smallButton}
+          onPress={() => {
+            if (sessionId) {
+              setDevice(`Session: ${sessionId}`)
+              setScreen('files')
+            }
+          }}
+        >
+          <Text style={styles.buttonText}>Find Device</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
+  if (screen === 'files') {
+    return (
+      <View style={styles.container}>
+        <Header />
+
+        <Text style={styles.title}>Send File: Add Files</Text>
+
+        <FlatList
+          data={files}
+          keyExtractor={(item, index) => index.toString()}
+          style={styles.fileList}
+          contentContainerStyle={styles.fileListContent}
+          renderItem={({ item, index }) => (
+            <View style={styles.fileRow}>
+              <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="tail">
+                {item.name ?? item.uri ?? 'Unnamed file'}
+              </Text>
+
+              <TouchableOpacity onPress={() => removeFile(index)}>
+                <Text style={styles.removeButton}>X</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          ListEmptyComponent={<Text style={styles.emptyText}>No files added yet</Text>}
+        />
+
+        <TouchableOpacity style={[styles.smallButton, !deviceType && styles.smallButtonDisabled]} onPress={pickFile} disabled={!deviceType}>
+          <Text style={styles.buttonText}>Add File</Text>
+        </TouchableOpacity>
+
+        {device && <Text style={styles.deviceLabel}>Device: {device}</Text>}
+          
+        <TouchableOpacity style={styles.mainButton}
+        //normally it would have the text file transfer but I add in a ttransition
+        //realized how are the user/dev supposed to know when a file actually transfer
+        //so I add a result status tranfer status
+          onPress={() => {
+            if (files.length === 0){
+              setTransferStatus('No Files were selected')
+              return
+            }
+            setTransferStatus('Sending Files...')
+            setTimeout(() => {
+              setTransferStatus('Files sent successfully (mock)')
+            }, 2000)
+          }}
+          >
+          <Text style={styles.buttonText}>Transfer Files</Text>
+        </TouchableOpacity>
+
+        {transferStatus !== '' && (
+          <Text style={{marginTop: 10 }}>{transferStatus}</Text>
+        )}
+      </View>
+    )
+  }
+
+  return null
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#8fa3c6',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    padding: 20,
+    paddingTop: 180
+  },
+
+  header: {
+    position: 'absolute',
+    top: 18,
+    left: 0,
+    right: 0,
+    height: 80,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 50,
+    elevation: 50,
+    backgroundColor: 'transparent'
+  },
+
+  logo: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    marginTop: -6
+  },
+
+  logoLarge: {
+    fontSize: 42,
+    fontWeight: 'bold',
+    marginBottom: 10
+  },
+
+  closeButton: {
+    position: 'absolute',
+    right: 30
+  },
+
+  closeText: {
+    fontSize: 22,
+    fontWeight: 'bold'
+  },
+
+  title: {
+    fontSize: 22,
+    marginBottom: 12,
+    textAlign: 'center'
+  },
+
+  mainButton: {
+    backgroundColor: '#e9e1d6',
+    padding: 16,
+    borderRadius: 30,
+    width: 220,
+    alignItems: 'center',
+    marginVertical: 10
+  },
+
+  smallButton: {
+    backgroundColor: '#e9e1d6',
+    padding: 12,
+    borderRadius: 20,
+    marginTop: 15,
+    width: 220,
+    alignItems: 'center'
+  },
+
+  smallButtonDisabled: {
+    backgroundColor: '#cfc7b9'
+  },
+
+  buttonText: {
+    fontSize: 16,
+    fontWeight: '600'
+  },
+
+  input: {
+    backgroundColor: 'white',
+    width: 220,
+    padding: 10,
+    borderRadius: 5,
+    marginTop: 10
+  },
+
+  orText: {
+    marginVertical: 10
+  },
+
+  footerText: {
+    marginTop: 40,
+    fontSize: 12
+  },
+
+  // Device selector on home screen
+  deviceSelectorRowHome: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: 320,
+    marginTop: 8,
+    marginBottom: 8
+  },
+
+  deviceButtonHome: {
+    flex: 1,
+    backgroundColor: '#f0eae0',
+    paddingVertical: 10,
+    marginHorizontal: 6,
+    borderRadius: 8,
+    alignItems: 'center'
+  },
+
+  deviceButtonSelectedHome: {
+    backgroundColor: '#3b6aa0'
+  },
+
+  deviceButtonTextHome: {
+    fontSize: 13,
+    color: '#333'
+  },
+
+  deviceButtonTextSelectedHome: {
+    color: '#fff',
+    fontWeight: '700'
+  },
+
+  // FlatList styling
+  fileList: {
+    width: 320,
+    maxHeight: 320,
+    marginBottom: 10
+  },
+
+  fileListContent: {
+    paddingBottom: 10
+  },
+
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#dfe6f2',
+    width: '100%',
+    padding: 10,
+    marginBottom: 10,
+    borderRadius: 8
+  },
+
+  fileName: {
+    fontSize: 16,
+    flexShrink: 1,
+    marginRight: 8
+  },
+
+  removeButton: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginLeft: 8
+  },
+
+  deviceLabel: {
+    marginTop: 15,
+    fontSize: 14
+  },
+
+  emptyText: {
+    textAlign: 'center',
+    color: '#2b2b2b',
+    paddingVertical: 12
+  }
+})
+/*Testing Mode
+Device Tab (Eri) shows the session QR
+Device Ipad (Eri) scans the qr code
+both need expo go, so download expo go on apple
+and scan tablet QR code given when sending file
+*/

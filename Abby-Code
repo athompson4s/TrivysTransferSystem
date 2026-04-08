@@ -1,0 +1,771 @@
+/*
+This is the main screen component for the Trivy's Transfer System (TTS) app.
+It handles the entire file transfer flow between two users: a sender and a receiver.
+The app uses QR codes and session IDs for pairing devices, and communicates with a Raspberry Pi server for file uploads and downloads.
+
+Key features:
+- Sender: selects files, enters receiver's code/QR, uploads to server
+- Receiver: generates code/QR, waits for sender, accepts/rejects transfers, downloads files
+- Server coordination: prepare, accept/reject, upload, list/download files
+
+This file was built as a React Native Expo app with TypeScript.
+*/
+
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as DocumentPicker from 'expo-document-picker';
+import React, { useState } from 'react';
+import {
+  FlatList,
+  Linking,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
+
+// Type definitions for the app's data structures
+// These help TypeScript understand the shape of our data and catch errors at compile time
+
+// Represents the current screen being displayed
+type Screen = 'home' | 'connect' | 'files';
+
+// Represents the type of device the user is using (for UI customization)
+type DeviceType = 'Apple Phone' | 'Samsung Phone' | 'PC' | null;
+
+// Main component for the TTS app
+export default function Index() {
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [screen, setScreen] = useState<Screen>('home')
+  const [files, setFiles] = useState<any[]>([])
+  const [receivedFiles, setReceivedFiles] = useState<any[]>([])
+  const [code, setCode] = useState('')
+  const [device, setDevice] = useState<string | null>(null)
+  const [deviceType, setDeviceType] = useState<DeviceType>(null)
+  const [showDeviceOptions, setShowDeviceOptions] = useState(false) // NEW: show device buttons on main screen
+  const [scanning, setScanning] = useState(false)//this is the state of the scanning
+  const [transferStatus, setTransferStatus] = useState('')//this is for the mock file transfer,to see how it will work
+  const [permission, requestPermission] = useCameraPermissions()
+  const [serverAddress, setServerAddress] = useState('http://192.168.157.238:3000'); 
+  const [role, setRole] = useState<'send' | 'receive' | null>(null)
+
+  //this is a simple encryption because this is a prototype so it isnt
+  //a huge encryption security wise but it works, hopefully
+  const encrypt = (text: string) => text
+  const decrypt = (text: string) => text
+
+  // Receiver: poll for received files when on files screen
+  // This effect runs every 2 seconds to check for new uploaded files
+  React.useEffect(() => {
+    if (screen === 'files' && role === 'receive' && sessionId) {
+      let mounted = true;
+      const pollFiles = async () => {
+        while (mounted && screen === 'files' && role === 'receive') {
+          try {
+            const r = await fetch(`${serverAddress}/session/${encodeURIComponent(sessionId)}/files`);
+            if (r.ok) {
+              const j = await r.json();
+              if (mounted) setReceivedFiles(j.files || []);
+            }
+          } catch (e) {
+            // ignore network errors
+          }
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      };
+      pollFiles();
+      return () => { mounted = false };
+    }
+  }, [screen, role, sessionId, serverAddress]);
+
+  // Function to pick files from the device using Expo's DocumentPicker
+  // Allows users to select any type of file from their device storage
+  const pickFile = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: '*/*',
+      copyToCacheDirectory: true
+    })
+  
+    // handle different expo versions return shapes
+    if ((result as any).canceled === false && Array.isArray((result as any).assets) && (result as any).assets.length > 0) {
+      setFiles(prev => [...prev, (result as any).assets[0]])
+      return
+    }
+    if ((result as any).type === 'success') {
+      setFiles(prev => [...prev, result])
+      return
+    }
+    if ((result as any).name || (result as any).uri) {
+      setFiles(prev => [...prev, result])
+    }
+  }
+
+  // Function to remove a file from the selected files list by index
+  const removeFile = (index: number) => {
+    const updated = [...files];  // Create a copy of the files array
+    updated.splice(index, 1);    // Remove the file at the specified index
+    setFiles(updated);           // Update the state with the new array
+  };
+
+  // Function to start QR code scanning using the camera
+  // Requests camera permission if not already granted
+  const startScanning = async () => {
+    if (!permission?.granted) {
+      await requestPermission()
+    }
+    setScanning(true)
+  }
+
+  // Main function to upload files to the Raspberry Pi server
+  // This handles the complete transfer flow: prepare -> wait for acceptance -> upload
+  async function uploadFilesToPi(sessionId: string | null) {
+    if (!sessionId) {
+      setTransferStatus('No session id');
+      return;
+    }
+    if (files.length === 0) {
+      setTransferStatus('No files selected');
+      return;
+    }
+    try {
+      // Step 1: Prepare the transfer by sending file metadata to the server
+      // This tells the receiver what files are coming without uploading yet
+      const metadata = files.map((f: any, i: number) => ({ name: f.name || `file-${i}`, size: f.size || 0, type: f.mimeType || 'application/octet-stream' }));
+      setTransferStatus('Preparing transfer...');
+      const prep = await fetch(`${serverAddress}/prepare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, files: metadata })
+      });
+      if (!prep.ok) {
+        const t = await prep.text();
+        setTransferStatus(`Prepare failed: ${prep.status} ${t}`);
+        return;
+      }
+
+      // Step 2: Wait for the receiver to accept or reject the transfer
+      // Poll the session status every 2 seconds for up to 60 seconds
+      setTransferStatus('Waiting for receiver to accept...');
+      const start = Date.now();
+      const timeoutMs = 60_000; // 60 seconds timeout
+      let accepted = false;
+      while (Date.now() - start < timeoutMs) {
+        const sres = await fetch(`${serverAddress}/session/${encodeURIComponent(sessionId)}`);
+        if (sres.ok) {
+          const json = await sres.json();
+          const pending = json.session?.pending;
+          if (pending?.status === 'accepted') {
+            accepted = true;
+            break;  // Receiver accepted, proceed to upload
+          }
+          if (pending?.status === 'rejected') {
+            setTransferStatus('Transfer rejected by receiver');
+            return;  // Receiver rejected, stop here
+          }
+        }
+        // Wait 2 seconds before checking again
+        await new Promise(r => setTimeout(r, 2000));
+      }
+      if (!accepted) {
+        setTransferStatus('Timeout waiting for receiver to accept');
+        return;  // Timeout, transfer cancelled
+      }
+
+      // Step 3: Upload the actual files now that transfer is accepted
+      setTransferStatus('Receiver accepted — uploading...');
+      const form = new FormData();
+      files.forEach((f: any, i: number) => {
+        const uri = f.uri || f.fileUri || f.uri;
+        const name = f.name || `file-${i}`;
+        const type = f.mimeType || 'application/octet-stream';
+        // Handle different platforms: web vs native file handling
+        if (Platform.OS === 'web' && typeof (f as any).file === 'object') {
+          form.append('files', (f as any).file, name);
+        } else {
+          form.append('files', { uri, name, type } as any);
+        }
+      });
+
+      // Send the files to the server
+      const res = await fetch(`${serverAddress}/upload?sessionId=${encodeURIComponent(sessionId)}`, {
+        method: 'POST',
+        body: form,
+        headers: { 'Accept': 'application/json' }
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        setTransferStatus(`Upload failed: ${res.status} ${text}`);
+        return;
+      }
+      const rjson = await res.json();
+      setTransferStatus(`Upload OK: ${rjson.message || 'saved'}`);
+    } catch (err: any) {
+      setTransferStatus(`Upload error: ${err.message || err}`);
+    }
+  }
+
+  // Header component that appears on connect and files screens
+  // Shows the TTS logo and a close button to return to home
+  function Header() {
+    return (
+      <View style={styles.header}>
+        <Text style={styles.logo}>TTS</Text>
+
+        <TouchableOpacity onPress={() => { setScreen('home'); setShowDeviceOptions(false) }} style={styles.closeButton}>
+          <Text style={styles.closeText}>X</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
+  // Home screen: Initial screen where user chooses to send or receive files
+  if (screen === 'home') {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.logoLarge}>TTS</Text>
+
+        <Text style={styles.title}>Trivy's Transfer System</Text>
+
+        {/* Send File button now toggles device options instead of immediately navigating */}
+        <TouchableOpacity
+          style={styles.mainButton}
+          onPress={() => {
+            // Sender flow: choose device then enter/scan code
+            setRole('send')
+            setShowDeviceOptions(true)
+          }}
+        >
+          <Text style={styles.buttonText}>Send File</Text>
+        </TouchableOpacity>
+
+        {/* Device option buttons appear after clicking Send File */}
+        {showDeviceOptions && (
+          <View style={styles.deviceSelectorRowHome}>
+            <TouchableOpacity
+              style={[styles.deviceButtonHome, deviceType === 'Apple Phone' && styles.deviceButtonSelectedHome]}
+              onPress={() => {
+                setDeviceType('Apple Phone')//lets change it up a little, nvm later
+                setShowDeviceOptions(false)
+                // If receiver, create session now and show QR; if sender, go to connect to enter/scan code
+                if (role === 'receive') {
+                  const id = Math.random().toString(36).substring(2, 8)
+                  setSessionId(id)
+                }
+                setScreen('connect')
+              }}
+            >
+              <Text style={[styles.deviceButtonTextHome, deviceType === 'Apple Phone' && styles.deviceButtonTextSelectedHome]}>Apple Phone</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.deviceButtonHome, deviceType === 'Samsung Phone' && styles.deviceButtonSelectedHome]}
+              onPress={() => {
+                setDeviceType('Samsung Phone')//and tablet, but 2 out of 3
+                setShowDeviceOptions(false)
+                if (role === 'receive') {
+                  const id = Math.random().toString(36).substring(2, 8)
+                  setSessionId(id)
+                }
+                setScreen('connect')
+              }}
+            >
+              <Text style={[styles.deviceButtonTextHome, deviceType === 'Samsung Phone' && styles.deviceButtonTextSelectedHome]}>Samsung Phone</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.deviceButtonHome, deviceType === 'PC' && styles.deviceButtonSelectedHome]}
+              onPress={() => {
+                setDeviceType('PC')//one of ours then, unless got a chromebook
+                setShowDeviceOptions(false)
+                if (role === 'receive') {
+                  const id = Math.random().toString(36).substring(2, 8)
+                  setSessionId(id)
+                }
+                setScreen('connect')
+              }}
+            >
+              <Text style={[styles.deviceButtonTextHome, deviceType === 'PC' && styles.deviceButtonTextSelectedHome]}>PC</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={styles.mainButton}
+          onPress={() => {
+            // Receiver flow: generate session and share code
+            setRole('receive')
+            setShowDeviceOptions(true)
+          }}
+        >
+          <Text style={styles.buttonText}>Receive File</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.footerText}>No sign up required!</Text>
+      </View>
+    )
+  }
+
+  // Connect screen: Where pairing happens
+  // Receivers see their code/QR to share, senders enter code or scan QR
+  if (screen === 'connect') {
+    return (
+      <View style={styles.container}>
+        <Header />
+
+        <Text style={styles.title}>{role === 'receive' ? 'Receive File: Share Code' : 'Send File: Connect Device'}</Text>
+
+        {role === 'send' ? (
+          <TouchableOpacity
+            style={styles.mainButton}
+            onPress={startScanning}
+          >
+            <Text style={styles.buttonText}>Scan QR</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={{ marginVertical: 10 }}>Share this code with the sender to receive files</Text>
+        )}
+
+      {scanning && (//this is adding in the scanner view to connect device and files
+      //along with device, hence session ID
+        <CameraView
+          barcodeScannerSettings={{ barcodeTypes: ['qr'] }} 
+          onBarcodeScanned={({ data }) => {
+            setSessionId(data)
+            setScanning(false)
+            setDevice('Connected Device')
+            setScreen('files')
+          }}
+          style={{ width: 250, height: 250, marginTop: 20 }}/>
+        )}
+      {sessionId && role === 'receive' && (
+        <>
+        <Text>Session Code: {sessionId}</Text>
+        <QRCode value={sessionId} size={180} />
+        </>
+      )}
+
+        {role === 'send' && (
+          <>
+            <Text style={styles.orText}>OR</Text>
+
+            <TextInput placeholder="Input Code" value={code} onChangeText={setCode} style={styles.input} />
+
+            <TouchableOpacity
+              style={styles.smallButton}
+              onPress={() => {
+                if (code.trim()){
+                  const trimmed = code.trim()
+                  setSessionId(trimmed)
+                  setDevice(`Session: ${trimmed}`)
+                  setScreen('files')
+                }
+              }}
+            >
+              <Text style={styles.buttonText}>Find Device</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        {/* Receiver-specific: poll server for pending transfer and allow accept/reject */}
+        {role === 'receive' && sessionId && (
+          <View style={{ marginTop: 14, alignItems: 'center' }}>
+            <Text style={{ fontWeight: '600', marginBottom: 8 }}>Waiting for sender...</Text>
+            <TouchableOpacity
+              style={styles.smallButton}
+              onPress={async () => {
+                // ensure session exists on server; no-op here
+                setTransferStatus('Listening for incoming transfers...');
+                // start polling in background
+                const poll = async () => {
+                  while (screen === 'connect' && role === 'receive') {
+                    try {
+                      const r = await fetch(`${serverAddress}/session/${encodeURIComponent(sessionId)}`);
+                      if (r.ok) {
+                        const j = await r.json();
+                        const pending = j.session?.pending;
+                        if (pending && pending.status === 'waiting') {
+                          // show accept/reject UI
+                          setTransferStatus(`Incoming: ${pending.files.length} file(s) — accept to receive`);
+                          // break to let UI show accept buttons
+                          break;
+                        }
+                      }
+                    } catch (e) {
+                      // ignore
+                    }
+                    await new Promise(r => setTimeout(r, 2000));
+                  }
+                };
+                poll();
+              }}
+            >
+              <Text style={styles.buttonText}>Start Listening</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* If receiver sees a pending transfer, show details + accept/reject */}
+        {role === 'receive' && sessionId && (
+          <ReceiverPending sessionId={sessionId} serverAddress={serverAddress} setTransferStatus={setTransferStatus} setScreen={setScreen} />
+        )}
+      </View>
+    )
+  }
+
+  // Files screen: Main file management interface
+  // Different UI for senders (add/upload files) vs receivers (view/download files)
+  if (screen === 'files') {
+    return (
+      <View style={styles.container}>
+        <Header />
+
+        {role === 'send' ? (
+          // Sender view: add and send files
+          <>
+            <Text style={styles.title}>Send File: Add Files</Text>
+
+            {role !== 'send' && (
+              <TextInput
+                placeholder="Pi server (http://192.168.157.238:3000)"
+                value={serverAddress}
+                onChangeText={setServerAddress}
+                style={[styles.input, { marginTop: 6 }]}
+              />
+            )}
+
+            <FlatList
+              data={files}
+              keyExtractor={(item, index) => index.toString()}
+              style={styles.fileList}
+              contentContainerStyle={styles.fileListContent}
+              renderItem={({ item, index }) => (
+                <View style={styles.fileRow}>
+                  <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="tail">
+                    {item.name ?? item.uri ?? 'Unnamed file'}
+                  </Text>
+
+                  <TouchableOpacity onPress={() => removeFile(index)}>
+                    <Text style={styles.removeButton}>X</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              ListEmptyComponent={<Text style={styles.emptyText}>No files added yet</Text>}
+            />
+
+            <TouchableOpacity style={[styles.smallButton, !deviceType && styles.smallButtonDisabled]} onPress={pickFile} disabled={!deviceType}>
+              <Text style={styles.buttonText}>Add File</Text>
+            </TouchableOpacity>
+
+            {device && <Text style={styles.deviceLabel}>Device: {device}</Text>}
+              
+            <TouchableOpacity style={styles.mainButton} onPress={() => uploadFilesToPi(sessionId)}>
+              <Text style={styles.buttonText}>Transfer Files</Text>
+            </TouchableOpacity>
+
+            {transferStatus !== '' && (
+              <Text style={{marginTop: 10 }}>{transferStatus}</Text>
+            )}
+          </>
+        ) : (
+          // Receiver view: download files
+          <>
+            <Text style={styles.title}>Receive File: Downloaded Files</Text>
+
+            <FlatList
+              data={receivedFiles}
+              keyExtractor={(item, index) => index.toString()}
+              style={styles.fileList}
+              contentContainerStyle={styles.fileListContent}
+              renderItem={({ item, index }) => (
+                <View style={styles.fileRow}>
+                  <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="tail">
+                    {item.originalName} ({Math.round(item.size / 1024)} KB)
+                  </Text>
+
+                  <TouchableOpacity onPress={() => {
+                    const downloadUrl = `${serverAddress}/session/${encodeURIComponent(sessionId!)}/download/${encodeURIComponent(item.originalName)}`;
+                    // For web, trigger download via anchor; for native, open URL in browser
+                    if (Platform.OS === 'web') {
+                      const a = document.createElement('a');
+                      a.href = downloadUrl;
+                      a.download = item.originalName;
+                      a.click();
+                    } else {
+                      // iOS/Android: open URL with Linking
+                      Linking.openURL(downloadUrl);
+                    }
+                  }}>
+                    <Text style={{ color: '#3b6aa0', fontWeight: '600' }}>Download</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              ListEmptyComponent={<Text style={styles.emptyText}>Waiting for files...</Text>}
+            />
+
+            {transferStatus !== '' && (
+              <Text style={{marginTop: 10 }}>{transferStatus}</Text>
+            )}
+          </>
+        )}
+      </View>
+    )
+  }
+
+  return null
+}
+
+// ReceiverPending component: Handles the accept/reject flow for receivers
+// Polls the server for pending transfers and shows buttons to accept or reject
+function ReceiverPending({ sessionId, serverAddress, setTransferStatus, setScreen }: any) {
+  const [pending, setPending] = useState<any | null>(null);
+
+  React.useEffect(() => {
+    let mounted = true;
+    const poll = async () => {
+      while (mounted) {
+        try {
+          const r = await fetch(`${serverAddress}/session/${encodeURIComponent(sessionId)}`);
+          if (r.ok) {
+            const j = await r.json();
+            const p = j.session?.pending || null;
+            if (p && mounted) setPending(p);
+          }
+        } catch (e) {
+          // ignore network errors while polling
+        }
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    };
+    poll();
+    return () => { mounted = false };
+  }, [sessionId, serverAddress]);
+
+  if (!pending) return null;
+
+  return (
+    <View style={{ marginTop: 14, alignItems: 'center' }}>
+      <Text style={{ fontWeight: '700', marginBottom: 8 }}>Incoming files</Text>
+      {pending.files.map((f: any, i: number) => (
+        <Text key={i}>{f.name} ({f.size} bytes)</Text>
+      ))}
+
+      <View style={{ flexDirection: 'row', marginTop: 12 }}>
+        <TouchableOpacity style={[styles.smallButton, { marginRight: 8 }]} onPress={async () => {
+          try {
+            const r = await fetch(`${serverAddress}/session/${encodeURIComponent(sessionId)}/accept`, { method: 'POST' });
+            if (r.ok) {
+              setTransferStatus('Accepted transfer — waiting for upload');
+              // move to files screen to show incoming progress
+              setScreen('files');
+            } else {
+              setTransferStatus('Failed to accept');
+            }
+          } catch (e: any) {
+            setTransferStatus(`Accept error: ${e.message || e}`);
+          }
+        }}>
+          <Text style={styles.buttonText}>Accept</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.smallButton} onPress={async () => {
+          try {
+            const r = await fetch(`${serverAddress}/session/${encodeURIComponent(sessionId)}/reject`, { method: 'POST' });
+            if (r.ok) {
+              setTransferStatus('Rejected transfer');
+            } else {
+              setTransferStatus('Failed to reject');
+            }
+          } catch (e: any) {
+            setTransferStatus(`Reject error: ${e.message || e}`);
+          }
+        }}>
+          <Text style={styles.buttonText}>Reject</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// Styles for the app components
+// Uses React Native's StyleSheet for optimized styling and consistent theming
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#8fa3c6',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    padding: 20,
+    paddingTop: 180
+  },
+
+  header: {
+    position: 'absolute',
+    top: 18,
+    left: 0,
+    right: 0,
+    height: 80,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 50,
+    elevation: 50,
+    backgroundColor: 'transparent'
+  },
+
+  logo: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    marginTop: -6
+  },
+
+  logoLarge: {
+    fontSize: 42,
+    fontWeight: 'bold',
+    marginBottom: 10
+  },
+
+  closeButton: {
+    position: 'absolute',
+    right: 30
+  },
+
+  closeText: {
+    fontSize: 22,
+    fontWeight: 'bold'
+  },
+
+  title: {
+    fontSize: 22,
+    marginBottom: 12,
+    textAlign: 'center'
+  },
+
+  mainButton: {
+    backgroundColor: '#e9e1d6',
+    padding: 16,
+    borderRadius: 30,
+    width: 220,
+    alignItems: 'center',
+    marginVertical: 10
+  },
+
+  smallButton: {
+    backgroundColor: '#e9e1d6',
+    padding: 12,
+    borderRadius: 20,
+    marginTop: 15,
+    width: 220,
+    alignItems: 'center'
+  },
+
+  smallButtonDisabled: {
+    backgroundColor: '#cfc7b9'
+  },
+
+  buttonText: {
+    fontSize: 16,
+    fontWeight: '600'
+  },
+
+  input: {
+    backgroundColor: 'white',
+    width: 220,
+    padding: 10,
+    borderRadius: 5,
+    marginTop: 10
+  },
+
+  orText: {
+    marginVertical: 10
+  },
+
+  footerText: {
+    marginTop: 40,
+    fontSize: 12
+  },
+
+  // Device selector on home screen
+  deviceSelectorRowHome: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: 320,
+    marginTop: 8,
+    marginBottom: 8
+  },
+
+  deviceButtonHome: {
+    flex: 1,
+    backgroundColor: '#f0eae0',
+    paddingVertical: 10,
+    marginHorizontal: 6,
+    borderRadius: 8,
+    alignItems: 'center'
+  },
+
+  deviceButtonSelectedHome: {
+    backgroundColor: '#3b6aa0'
+  },
+
+  deviceButtonTextHome: {
+    fontSize: 13,
+    color: '#333'
+  },
+
+  deviceButtonTextSelectedHome: {
+    color: '#fff',
+    fontWeight: '700'
+  },
+
+  // FlatList styling
+  fileList: {
+    width: 320,
+    maxHeight: 320,
+    marginBottom: 10
+  },
+
+  fileListContent: {
+    paddingBottom: 10
+  },
+
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#dfe6f2',
+    width: '100%',
+    padding: 10,
+    marginBottom: 10,
+    borderRadius: 8
+  },
+
+  fileName: {
+    fontSize: 16,
+    flexShrink: 1,
+    marginRight: 8
+  },
+
+  removeButton: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginLeft: 8
+  },
+
+  deviceLabel: {
+    marginTop: 15,
+    fontSize: 14
+  },
+
+  emptyText: {
+    textAlign: 'center',
+    color: '#2b2b2b',
+    paddingVertical: 12
+  }
+})
+/*Testing Mode
+Device Tab (Eri) shows the session QR
+Device Ipad (Eri) scans the qr code
+both need expo go, so download expo go on apple
+and scan tablet QR code given when sending file
+*/

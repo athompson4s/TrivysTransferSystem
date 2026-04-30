@@ -1,22 +1,32 @@
+// Transfer Statistics Module
+// This module tracks and persists statistics for file transfer sessions,
+// including totals, timings, peaks, and computed metrics.
+
 const fs = require('fs');
 const path = require('path');
 
+// Paths for data storage
 const DATA_DIR = path.join(__dirname, 'data');
 const STATS_FILE = path.join(DATA_DIR, 'transfer-stats.json');
+
+// Ensure a directory exists, creating it recursively if needed
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
 }
 
+// Safe division to avoid division by zero
 function safeDivide(numerator, denominator) {
   return denominator > 0 ? numerator / denominator : 0;
 }
 
+// Round a number to a specified number of decimal places
 function round(value, decimals = 2) {
   return Number(value.toFixed(decimals));
 }
 
+// Build the default statistics structure
 function buildDefaultStats() {
   return {
     totals: {
@@ -44,6 +54,7 @@ function buildDefaultStats() {
   };
 }
 
+// Class to manage transfer statistics
 class TransferStats {
   constructor(filePath = STATS_FILE) {
     this.filePath = filePath;
@@ -51,6 +62,7 @@ class TransferStats {
     this.stats = this.load();
   }
 
+  // Load statistics from file, or initialize if file doesn't exist
   load() {
     ensureDir(path.dirname(this.filePath));
 
@@ -77,17 +89,20 @@ class TransferStats {
     }
   }
 
+  // Write statistics to file
   write(nextStats = this.stats) {
     nextStats.updatedAt = new Date().toISOString();
     this.stats = nextStats;
     fs.writeFileSync(this.filePath, JSON.stringify(nextStats, null, 2));
   }
 
+  // Reset all statistics and active sessions
   reset() {
     this.activeSessions.clear();
     this.write(buildDefaultStats());
   }
 
+  // Mark a transfer as prepared (initial step)
   markPrepared(sessionId, files = []) {
     const totalBytes = files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
 
@@ -101,6 +116,7 @@ class TransferStats {
     this.write();
   }
 
+  // Mark a transfer as accepted
   markAccepted(sessionId) {
     const session = this.activeSessions.get(sessionId);
     const acceptedAt = Date.now();
@@ -115,12 +131,14 @@ class TransferStats {
     this.write();
   }
 
+  // Mark a transfer as rejected
   markRejected(sessionId) {
     this.stats.totals.rejectedTransfers += 1;
     this.activeSessions.delete(sessionId);
     this.write();
   }
 
+  // Mark upload as completed and update statistics
   markUploadCompleted(sessionId, savedFiles = []) {
     const session = this.activeSessions.get(sessionId);
     const uploadedAt = Date.now();
@@ -161,12 +179,14 @@ class TransferStats {
     this.write();
   }
 
+  // Mark a file as downloaded
   markDownloaded(file) {
     this.stats.totals.downloadedFiles += 1;
     this.stats.totals.downloadedBytes += Number(file?.size) || 0;
     this.write();
   }
 
+  // Get a summary of statistics with computed metrics
   getSummary() {
     const { totals, timings, peaks, updatedAt } = this.stats;
     const averageAcceptanceMs = safeDivide(timings.totalAcceptanceMs, totals.acceptedTransfers);
@@ -202,6 +222,7 @@ class TransferStats {
   }
 }
 
+// Export a singleton instance, the class, and the stats file path
 module.exports = new TransferStats();
 module.exports.TransferStats = TransferStats;
 module.exports.STATS_FILE = STATS_FILE;

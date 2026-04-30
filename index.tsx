@@ -395,7 +395,7 @@ export default function Index() {
       <View style={styles.container}>
         <Text style={styles.logoLarge}>TTS</Text>
 
-        <Text style={styles.title}>Trivy's Transfer System</Text>
+        <Text style={styles.title}>Trivy&apos;s Transfer System</Text>
 
         {/* Send File button - navigate directly to connect screen */}
         <TouchableOpacity
@@ -451,7 +451,7 @@ export default function Index() {
       //along with device, hence session ID
         <CameraView
           barcodeScannerSettings={{ barcodeTypes: ['qr'] }} 
-          onBarcodeScanned={({ data }) => {
+          onBarcodeScanned={({ data }: { data: string }) => {
             setSessionId(data)
             setTransferStatus('')
             setScanning(false)
